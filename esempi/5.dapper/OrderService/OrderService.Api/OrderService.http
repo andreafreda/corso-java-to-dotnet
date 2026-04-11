@@ -1,0 +1,22 @@
+@baseUrl = http://localhost:5000
+
+### Ottieni tutti gli ordini
+GET {{baseUrl}}/orders
+Accept: application/json
+
+### Ottieni un ordine specifico
+GET {{baseUrl}}/orders/1
+Accept: application/json
+
+### Ordine non trovato
+GET {{baseUrl}}/orders/99
+Accept: application/json
+
+### Crea un nuovo ordine
+POST {{baseUrl}}/orders
+Content-Type: application/json
+
+{
+  "customer": "Andrea Fred",
+  "total": 99.99
+}

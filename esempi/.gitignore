@@ -1,0 +1,19 @@
+# Build output
+**/bin/
+**/obj/
+
+# User-specific files
+*.user
+*.suo
+.vs/
+
+# dotnet tools
+.config/dotnet-tools.json
+
+# NuGet
+*.nupkg
+**/packages/
+
+# OS
+.DS_Store
+Thumbs.db
