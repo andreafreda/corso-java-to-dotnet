@@ -173,47 +173,66 @@ dotnet run --project esempi/5.mongodb/OrderService/OrderService.Api
 
 ---
 
-## Develop plan — esempi da costruire
-
-Gli esempi seguenti non sono ancora presenti. Ogni entry specifica: la base di partenza, i package da aggiungere, le modifiche al codice e cosa dimostra.
-
----
-
-### `esempi/6.httpclient` — Typed HttpClient e service discovery
+### `esempi/6.httpclient` — Typed HttpClient + mini InventoryService
 
 **Capitolo:** 6.1–6.2  
-**Base:** copia di `5.ef-azuresql`  
-**Prerequisito docker:** `azure-sql-edge` (già presente)
+**Base:** 5.ef-azuresql → aggiunge chiamata HTTP verso InventoryService  
+**Stato:** funzionante con Docker
 
-**Cosa aggiungere:**
-- `CreateOrderRequest` aggiornato con `ProductId` e `Quantity`
-- `IInventoryClient` nel Core (`Task<bool> IsAvailableAsync(int productId, int quantity)`)
-- `InventoryClient` in Infrastructure con `IHttpClientFactory` / typed client
-- Mini `InventoryService` nella solution: progetto ASP.NET Core minimale con `GET /inventory/{id}/available?quantity={qty}` che restituisce `true`/`false`
-- `IOrderService.CreateAsync` chiama `IInventoryClient` prima di creare l'ordine
-- Registrazione: `builder.Services.AddHttpClient<IInventoryClient, InventoryClient>()`
+**Contenuto:**
+- `IInventoryClient` nel Core con `IsAvailableAsync(int productId, int quantity)`
+- `InventoryClient` typed client in Infrastructure (pattern `AddHttpClient<TInterface, TImpl>`)
+- `InventoryService.Api` nella solution: Minimal API con `GET /inventory/{productId}/available?quantity={qty}` → risponde sempre `true`
+- `CreateOrderRequest` esteso con `ProductId` e `Quantity`
+- `OrderService.CreateAsync` chiama `IInventoryClient` prima di creare l'ordine; lancia `InvalidOperationException` se non disponibile
+- `GlobalExceptionHandler` aggiornato con `InvalidOperationException → 422 Unprocessable Entity`
+- `Services:InventoryUrl` in `appsettings.Development.json`
 
-**Packages da aggiungere:**
-- nessuno (usa `HttpClient` built-in)
+**Packages principali:**
+- nessuno aggiuntivo (usa `HttpClient` e `Microsoft.Extensions.Http` built-in)
+
+**Come avviare:**
+```bash
+docker compose -f esempi/6.httpclient/docker/docker-compose.yml up -d
+# Terminale 1 — InventoryService su :5001
+dotnet run --project esempi/6.httpclient/OrderService/InventoryService.Api
+# Terminale 2 — OrderService su :5000
+dotnet run --project esempi/6.httpclient/OrderService/OrderService.Api
+```
 
 ---
 
 ### `esempi/6.servicebus` — Azure Service Bus pub/sub
 
 **Capitolo:** 6.3  
-**Base:** copia di `6.httpclient`  
-**Prerequisito docker:** aggiungi `servicebus-emulator` al docker-compose
+**Base:** 5.ef-azuresql → aggiunge messaggistica asincrona con Service Bus  
+**Stato:** funzionante con Docker (emulatore)
 
-**Cosa aggiungere:**
-- `IOrderEventPublisher` nel Core con `PublishOrderCreatedAsync(Order order)`
-- `OrderCreatedEvent` record nel Core
-- `OrderEventPublisher` in Infrastructure con `ServiceBusSender`
-- `OrderCreatedConsumer` come `BackgroundService` (sottoscrizione, logga il messaggio e completa)
-- `servicebus-config.json` per l'emulatore (definizione queue/topic `order-created`)
-- `docker/docker-compose.yml` aggiornato con `mcr.microsoft.com/azure-messaging/servicebus-emulator:latest`
+**Contenuto:**
+- `OrderCreatedEvent` record in `Core/Events`
+- `IOrderEventPublisher` interfaccia nel Core
+- `OrderEventPublisher` in Infrastructure con `ServiceBusSender` (topic `order-created`)
+- `OrderCreatedConsumer` come `BackgroundService` (subscription `inventory-sub`): deserializza, logga, completa il messaggio
+- `MessageId` idempotente (`order-{id}-{guid}`)
+- `IServiceScopeFactory` nel consumer per risolvere servizi Scoped da un Singleton
+- `docker/docker-compose.yml` con `servicebus-emulator` (AMQP :5672, management :9090)
+- `docker/servicebus-config.json` con topic `order-created` e subscriptions `inventory-sub`, `notification-sub`
+- `ConnectionStrings:ServiceBus` con `UseDevelopmentEmulator=true`
 
-**Packages da aggiungere:**
+**Packages principali:**
 - `Azure.Messaging.ServiceBus`
+
+**Come avviare:**
+```bash
+docker compose -f esempi/6.servicebus/docker/docker-compose.yml up -d
+dotnet run --project esempi/6.servicebus/OrderService/OrderService.Api
+```
+
+---
+
+## Develop plan — esempi da costruire
+
+Gli esempi seguenti non sono ancora presenti. Ogni entry specifica: la base di partenza, i package da aggiungere, le modifiche al codice e cosa dimostra.
 
 ---
 
@@ -323,6 +342,32 @@ OrderService.IntegrationTests/ ← xUnit, WebApplicationFactory, Testcontainers
 - `Moq`
 - `Microsoft.AspNetCore.Mvc.Testing`
 - `Testcontainers.MsSql`
+
+---
+
+### `esempi/9.nunit` — Test con NUnit (alternativa a xUnit)
+
+**Capitolo:** 9.3  
+**Base:** copia di `5.ef-azuresql` + aggiunta progetto test NUnit  
+**Prerequisito docker:** nessuno (repository in-memory nei test unitari)
+
+**Struttura aggiuntiva:**
+```
+OrderService.NUnitTests/    ← NUnit, Moq
+```
+
+**Cosa aggiungere:**
+- `OrderServiceTests` con `[TestFixture]`, `[SetUp]`, `[Test]` — stessa logica degli xUnit tests ma in stile NUnit
+- `EfCoreOrderRepositoryTests` con `[OneTimeSetUp]` per setup db in-memory
+- Mock con Moq: `It.IsAny<CancellationToken>()` su tutti i setup (non `default`)
+- Campi nullable: inizializzati con `null!` (`private Mock<IOrderRepository> _repo = null!;`)
+- Asserzioni con `Assert.That(..., Is.EqualTo(...))` (stile NUnit fluente)
+
+**Packages da aggiungere (test project):**
+- `NUnit`
+- `NUnit3TestAdapter`
+- `Microsoft.NET.Test.Sdk`
+- `Moq`
 
 ---
 
