@@ -1,0 +1,21 @@
+{
+  "UserConfig": {
+    "Namespaces": [
+      {
+        "Name": "orderservice-ns",
+        "Queues": [
+          { "Name": "order-events" }
+        ],
+        "Topics": [
+          {
+            "Name": "order-created",
+            "Subscriptions": [
+              { "Name": "inventory-sub" },
+              { "Name": "notification-sub" }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

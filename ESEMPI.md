@@ -230,27 +230,35 @@ dotnet run --project esempi/6.servicebus/OrderService/OrderService.Api
 
 ---
 
-## Develop plan — esempi da costruire
-
-Gli esempi seguenti non sono ancora presenti. Ogni entry specifica: la base di partenza, i package da aggiungere, le modifiche al codice e cosa dimostra.
-
----
-
 ### `esempi/6.outbox` — Outbox pattern
 
 **Capitolo:** 6.4  
-**Base:** copia di `6.servicebus`  
-**Prerequisito docker:** stesso di `6.servicebus`
+**Base:** 6.servicebus → aggiunge consistenza distribuita con tabella Outbox  
+**Stato:** funzionante con Docker (emulatore)
 
-**Cosa aggiungere:**
-- `OutboxMessage` entity nel Core
-- `AddWithOutboxAsync` su `IOrderRepository` (salva ordine + outbox in una transazione)
-- Migration `AddOutbox` con tabella `OutboxMessages`
-- `OutboxProcessor` come `BackgroundService` (legge messaggi non inviati, pubblica, segna come elaborati)
-- `IOrderEventPublisher` usato dall'`OutboxProcessor`
+**Contenuto:**
+- `OutboxMessage` entity in `Core/Entities` (Id, Type, Payload, CreatedAt, ProcessedAt)
+- `AddWithOutboxAsync` su `IOrderRepository`: salva ordine e messaggio outbox in un'unica transazione EF Core (doppio `SaveChangesAsync` + `BeginTransactionAsync`)
+- `OutboxProcessor` come `BackgroundService`: polling ogni 5s, pubblica i messaggi con `ProcessedAt == null` su topic `order-created`, segna come elaborati
+- `MessageId = outbox.Id.ToString()` per deduplicazione idempotente su Service Bus
+- Migration `AddOutbox` con tabella `Outbox` (`nvarchar(max)` per il payload)
+- `InMemoryOrderRepository.AddWithOutboxAsync` delegato ad `AddAsync` (nessuna transazione reale)
+- Serializzazione JSON in Infrastructure — il Core passa `OrderCreatedEvent` come oggetto tipizzato
 
-**Packages da aggiungere:**
-- nessuno (usa EF Core già presente)
+**Packages principali:**
+- `Azure.Messaging.ServiceBus` (ereditato da 6.servicebus)
+
+**Come avviare:**
+```bash
+docker compose -f esempi/6.outbox/docker/docker-compose.yml up -d
+dotnet run --project esempi/6.outbox/OrderService/OrderService.Api
+```
+
+---
+
+## Develop plan — esempi da costruire
+
+Gli esempi seguenti non sono ancora presenti. Ogni entry specifica: la base di partenza, i package da aggiungere, le modifiche al codice e cosa dimostra.
 
 ---
 
