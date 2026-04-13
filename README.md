@@ -25,8 +25,8 @@
 | \# | Paragrafo | Analogia Java |
 | :-- | :-- | :-- |
 | 1.1 | [Il runtime: CLR vs JVM](capitolo-01/1.1-clr-vs-jvm.md) | Entrambi compilano in bytecode intermedio, ma il CLR usa IL |
-| 1.2 | [L'SDK e la CLI (`dotnet` CLI)](capitolo-01/1.2-dotnet-cli.md) | Equivalente di `mvn`/`gradle` da terminale |
-| 1.3 | [Il file `.csproj` e MSBuild](capitolo-01/1.3-csproj-msbuild.md) | Equivalente del `pom.xml` o `build.gradle` |
+| 1.2 | [L'SDK e la CLI (`dotnet` CLI)](capitolo-01/1.2-dotnet-cli.md) | Equivalente di `mvn` da terminale |
+| 1.3 | [Il file `.csproj` e MSBuild](capitolo-01/1.3-csproj-msbuild.md) | Equivalente del `pom.xml` |
 | 1.4 | [NuGet: il gestore di pacchetti](capitolo-01/1.4-nuget.md) | Equivalente di Maven Central |
 | 1.5 | [La Solution (`.sln`) e i progetti multipli](capitolo-01/1.5-solution.md) | Equivalente del multi-module Maven project |
 | 1.6 | [Tooling: Visual Studio, VS Code, Rider](capitolo-01/1.6-tooling.md) | Equivalente di IntelliJ IDEA / Eclipse |
