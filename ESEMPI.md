@@ -437,12 +437,6 @@ docker compose -f esempi/10.docker/docker/docker-compose.yml up --build
 
 ---
 
-## Develop plan — esempi da costruire
-
-Gli esempi seguenti non sono ancora presenti. Ogni entry specifica: la base di partenza, i package da aggiungere, le modifiche al codice e cosa dimostra.
-
----
-
 ### `esempi/10.aspire` — .NET Aspire AppHost locale
 
 **Capitolo:** 10.3, 11.4  
