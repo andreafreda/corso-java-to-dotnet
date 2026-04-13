@@ -1,0 +1,50 @@
+// Controllers/OrdersController.cs
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using OrderService.Core.DTOs;
+using OrderService.Core.Interfaces.Services;
+
+namespace OrderService.Api.Controllers;
+
+[ApiController]
+[Route("orders")]
+[Authorize]  // tutti gli endpoint richiedono autenticazione per default
+public class OrdersController : ControllerBase
+{
+    private readonly IOrderService _orderService;
+
+    public OrdersController(IOrderService orderService)
+    {
+        _orderService = orderService;
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> GetAll(CancellationToken ct)
+    {
+        var orders = await _orderService.GetAllAsync(ct);
+        return Ok(orders);
+    }
+
+    [HttpGet("{id:int}")]
+    public async Task<IActionResult> GetById(int id, CancellationToken ct)
+    {
+        var order = await _orderService.GetByIdAsync(id, ct);
+        return order is null ? NotFound() : Ok(order);
+    }
+
+    [HttpPost]
+    [Authorize(Policy = "WriteOrders")]
+    public async Task<IActionResult> Create([FromBody] CreateOrderRequest request, CancellationToken ct)
+    {
+        var order = await _orderService.CreateAsync(request, ct);
+        return CreatedAtAction(nameof(GetById), new { id = order.Id }, order);
+    }
+
+    [HttpDelete("{id:int}")]
+    [Authorize(Policy = "DeleteOrders")]
+    public async Task<IActionResult> Delete(int id, CancellationToken ct)
+    {
+        await _orderService.DeleteAsync(id, ct);
+        return NoContent();
+    }
+}

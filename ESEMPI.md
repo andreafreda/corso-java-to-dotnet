@@ -256,221 +256,296 @@ dotnet run --project esempi/6.outbox/OrderService/OrderService.Api
 
 ---
 
-## Develop plan — esempi da costruire
-
-Gli esempi seguenti non sono ancora presenti. Ogni entry specifica: la base di partenza, i package da aggiungere, le modifiche al codice e cosa dimostra.
-
----
-
 ### `esempi/7.jwt` — JWT auth + AuthServer + endpoint protection
 
 **Capitolo:** 7.3–7.6  
-**Base:** copia di `5.ef-azuresql`  
-**Prerequisito docker:** `azure-sql-edge` (già presente)
+**Base:** 5.ef-azuresql → aggiunge autenticazione JWT con refresh token  
+**Stato:** funzionante con Docker
 
-**Cosa aggiungere:**
-- `JwtSettings` record in `Core/Options` (Issuer, Audience, Key, ExpiryMinutes)
-- `TokenService` con `IOptions<JwtSettings>` — NO `IConfiguration` nel Core
-- `IRefreshTokenStore` nel Core, `InMemoryRefreshTokenStore` con `ConcurrentDictionary` in Infrastructure
-- `AuthService` con login, refresh, logout
-- `AuthController` con `/auth/login` (restituisce `AccessToken` + `RefreshToken`), `/auth/refresh`, `/auth/logout`
-- Utenti hardcoded in-memory con hash SHA256 (nota BCrypt in produzione)
-- `OrdersController` con `[Authorize]` a livello di classe, policy `WriteOrders` e `DeleteOrders`
-- `JwtBearerEvents` per 401/403 con body Problem Details JSON
+**Contenuto:**
+- `JwtSettings` record in `Core/Options` (Key, Issuer, Audience, ExpiryMinutes)
+- `TokenService` nel Core con `IOptions<JwtSettings>` — NO `IConfiguration` nel Core
+- `RefreshToken` entity e `IRefreshTokenStore` nel Core; `InMemoryRefreshTokenStore` con `ConcurrentDictionary` in Infrastructure
+- `AuthService` nel Core con login, refresh (con token rotation), logout; utenti hardcoded con hash SHA256
+- `AuthController` con `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`
+- `TokenResponse(AccessToken, RefreshToken, ExpiresIn)` DTO nel Core
+- `OrdersController` con `[Authorize]` a livello di classe; policy `WriteOrders` (Admin) su POST; policy `DeleteOrders` (Admin) su DELETE
+- `JwtBearerEvents.OnChallenge` (401) e `OnForbidden` (403) con body Problem Details JSON
+- `DeleteAsync` aggiunto a `IOrderService`, `IOrderRepository`, `EfCoreOrderRepository`, `InMemoryOrderRepository`
 
-**Packages da aggiungere:**
+**Packages principali:**
 - `Microsoft.AspNetCore.Authentication.JwtBearer`
 - `System.IdentityModel.Tokens.Jwt`
+- `Microsoft.Extensions.Options` (nel Core)
+
+**Come avviare:**
+```bash
+docker compose -f esempi/7.jwt/docker/docker-compose.yml up -d
+dotnet run --project esempi/7.jwt/OrderService/OrderService.Api
+# Login: POST /auth/login  { "email": "admin@example.com", "password": "admin123" }
+# Usa il token in: Authorization: Bearer <token>
+```
 
 ---
 
 ### `esempi/8.observability` — Health checks + Serilog + OpenTelemetry
 
 **Capitolo:** 8.1–8.3  
-**Base:** copia di `5.ef-azuresql`  
-**Prerequisito docker:** aggiungi Jaeger al docker-compose
+**Base:** 5.ef-azuresql → aggiunge health checks, Serilog, OpenTelemetry con Jaeger  
+**Stato:** funzionante con Docker
 
-**Cosa aggiungere:**
-- Health checks: `AddDbContextCheck<AppDbContext>()`, custom `OrderServiceHealthCheck` (query lightweight), `/health/live` con tag `"live"` e `/health/ready` con tag `"ready"`
-- Serilog: `UseSerilog` in `Program.cs`, `WriteTo.Console(new CompactJsonFormatter())`, `Enrich.WithMachineName()`, `Enrich.WithEnvironmentName()`
-- OpenTelemetry: `ActivitySource("OrderService")`, span custom in `OrderService.CreateAsync`, esportazione OTLP verso Jaeger
-- `docker/docker-compose.yml` aggiornato con Jaeger (`jaegertracing/all-in-one:latest`, porte 16686 + 4317)
+**Contenuto:**
+- Health checks: `AddDbContextCheck<AppDbContext>()` (tag `ready`), custom `OrderServiceHealthCheck` (query `COUNT(*)` su Orders, tag `ready`)
+- `/health/live` — risponde sempre se il processo è attivo (nessun tag, predicato `tag.Count == 0`)
+- `/health/ready` — verifica DB + query orders (tag `ready`)
+- Serilog: `UseSerilog` in `Program.cs`, `WriteTo.Console(new CompactJsonFormatter())`, `Enrich.WithMachineName()`, `Enrich.WithEnvironmentName()`; bootstrap logger prima di `CreateBuilder`
+- `app.UseSerilogRequestLogging()` per log strutturato delle richieste HTTP
+- OpenTelemetry: `ActivitySource("OrderService")` statica in `OrderService` del Core; span custom in `CreateAsync` con tag `order.customer`, `order.total`, `order.id`; `AddAspNetCoreInstrumentation()`; export OTLP verso Jaeger
+- `docker/docker-compose.yml` aggiornato con `jaegertracing/all-in-one` (UI :16686, OTLP gRPC :4317)
 
-**Packages da aggiungere:**
-- `Serilog.AspNetCore`
-- `Serilog.Enrichers.Environment` ← **indispensabile** per `WithMachineName`/`WithEnvironmentName`
-- `Serilog.Formatting.Compact`
-- `OpenTelemetry.Extensions.Hosting`
-- `OpenTelemetry.Instrumentation.AspNetCore`
-- `OpenTelemetry.Exporter.OpenTelemetryProtocol`
+**Packages principali:**
+- `Serilog.AspNetCore`, `Serilog.Enrichers.Environment`, `Serilog.Formatting.Compact`
+- `OpenTelemetry.Extensions.Hosting`, `OpenTelemetry.Instrumentation.AspNetCore`, `OpenTelemetry.Exporter.OpenTelemetryProtocol`
+- `Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore`
+
+**Come avviare:**
+```bash
+docker compose -f esempi/8.observability/docker/docker-compose.yml up -d
+dotnet run --project esempi/8.observability/OrderService/OrderService.Api
+# Health: GET /health/live  GET /health/ready
+# Tracing UI: http://localhost:16686
+```
 
 ---
 
 ### `esempi/8.resilienza-caching` — Polly + Redis cache
 
 **Capitolo:** 8.4–8.5  
-**Base:** copia di `6.httpclient` (ha già `IInventoryClient`)  
-**Prerequisito docker:** aggiungi Redis al docker-compose
+**Base:** 6.httpclient → aggiunge resilienza Polly su HTTP e caching Redis  
+**Stato:** funzionante con Docker
 
-**Cosa aggiungere:**
-- Polly: `.AddStandardResilienceHandler()` su `IInventoryClient`, `AddResilienceHandler` custom con retry (3 tentativi, backoff esponenziale) + circuit breaker (5 errori → open 30s)
-- `CachedOrderRepository` come decorator di `IOrderRepository` con `IDistributedCache` (chiave `order:{id}`, TTL 5 min)
-- `IDistributedCache` su Redis per `InventoryClient.IsAvailableAsync` (chiave `inventory:{productId}:{quantity}`, TTL 30s)
-- Registrazione: `builder.Services.AddStackExchangeRedisCache(...)` + decorator pattern per il repository
-- `docker/docker-compose.yml` aggiornato con `redis:7-alpine`
+**Contenuto:**
+- Polly: `AddResilienceHandler("inventory-pipeline")` con retry (3 tentativi, backoff esponenziale 200ms) + circuit breaker (50% failure rate, min 5 richieste, open 30s)
+- `CachedOrderRepository` decorator di `IOrderRepository`: cache Redis per `GetByIdAsync` (chiave `order:{id}`, TTL 5 min)
+- `InventoryClient.IsAvailableAsync` con cache Redis prima della chiamata HTTP (chiave `inventory:{productId}:{quantity}`, TTL 30s)
+- Registrazione decorator: `AddScoped<EfCoreOrderRepository>()` + `AddScoped<IOrderRepository>(sp => new CachedOrderRepository(...))`
+- `AddStackExchangeRedisCache` con `ConnectionStrings:Redis`
+- `docker/docker-compose.yml` aggiornato con `redis:7-alpine` (porta 6379)
 
-**Packages da aggiungere:**
+**Packages principali:**
 - `Microsoft.Extensions.Http.Resilience`
 - `Microsoft.Extensions.Caching.StackExchangeRedis`
+
+**Come avviare:**
+```bash
+docker compose -f esempi/8.resilienza-caching/docker/docker-compose.yml up -d
+# Terminale 1 — InventoryService su :5001
+dotnet run --project esempi/8.resilienza-caching/OrderService/InventoryService.Api
+# Terminale 2 — OrderService su :5000
+dotnet run --project esempi/8.resilienza-caching/OrderService/OrderService.Api
+```
 
 ---
 
 ### `esempi/9.tests` — Test unitari, integrazione, Testcontainers
 
 **Capitolo:** 9.1–9.7  
-**Base:** copia di `5.ef-azuresql` + aggiunta di progetti test  
-**Prerequisito docker:** Testcontainers gestisce i container autonomamente
+**Base:** 5.ef-azuresql → aggiunge due progetti test xUnit  
+**Stato:** compila; unit test eseguibili offline; integration tests con Testcontainers richiedono Docker
 
 **Struttura aggiuntiva:**
 ```
-OrderService.UnitTests/     ← xUnit, Moq
-OrderService.IntegrationTests/ ← xUnit, WebApplicationFactory, Testcontainers
+OrderService.UnitTests/     ← xUnit + Moq + EF InMemory
+OrderService.IntegrationTests/ ← xUnit + WebApplicationFactory + Testcontainers
 ```
 
-**Cosa aggiungere:**
-- Unit test `OrderServiceTests` con Moq per `IOrderRepository`
-- Unit test `EfCoreOrderRepositoryTests` con `InMemory` provider
-- Integration test con `WebApplicationFactory<Program>` + override servizi
-- Integration test con `MsSqlContainer` (Testcontainers) per test su database reale
-- `TestTokenHelper` per generare JWT di test
-- Profilo `Testing` in `appsettings.Testing.json`
+**Contenuto:**
+- `OrderServiceTests`: 4 test su `OrderService.Core.Services.OrderService` con `Mock<IOrderRepository>`
+- `EfCoreOrderRepositoryTests`: 4 test con `DbContextOptionsBuilder.UseInMemoryDatabase`, DB isolato per ogni test (Guid come nome DB)
+- `OrdersControllerTests`: `WebApplicationFactory<Program>` che sostituisce SqlServer con InMemory — 3 test HTTP (GET, POST, validazione)
+- `OrdersControllerDbTests`: `MsSqlContainer` (azure-sql-edge), `IAsyncLifetime` per start/stop, `db.Database.MigrateAsync()` su container — 2 test HTTP
+- `public partial class Program {}` aggiunto al fondo di `Program.cs` per esporre la classe ai test
+- `appsettings.Testing.json` con log level `Warning`
 
-**Packages da aggiungere (test projects):**
-- `xunit` + `xunit.runner.visualstudio` + `Microsoft.NET.Test.Sdk`
-- `Moq`
-- `Microsoft.AspNetCore.Mvc.Testing`
-- `Testcontainers.MsSql`
+**Packages principali (test projects):**
+- `Moq`, `Microsoft.EntityFrameworkCore.InMemory` (UnitTests)
+- `Microsoft.AspNetCore.Mvc.Testing`, `Microsoft.EntityFrameworkCore.InMemory`, `Testcontainers.MsSql` (IntegrationTests)
+
+**Come eseguire:**
+```bash
+dotnet test esempi/9.tests/OrderService/OrderService.UnitTests
+dotnet test esempi/9.tests/OrderService/OrderService.IntegrationTests  # richiede Docker
+```
 
 ---
 
 ### `esempi/9.nunit` — Test con NUnit (alternativa a xUnit)
 
 **Capitolo:** 9.3  
-**Base:** copia di `5.ef-azuresql` + aggiunta progetto test NUnit  
-**Prerequisito docker:** nessuno (repository in-memory nei test unitari)
+**Base:** 5.ef-azuresql → aggiunge progetto test NUnit  
+**Stato:** funzionante, nessun Docker richiesto
 
 **Struttura aggiuntiva:**
 ```
-OrderService.NUnitTests/    ← NUnit, Moq
+OrderService.NUnitTests/    ← NUnit + Moq + EF InMemory
 ```
 
-**Cosa aggiungere:**
-- `OrderServiceTests` con `[TestFixture]`, `[SetUp]`, `[Test]` — stessa logica degli xUnit tests ma in stile NUnit
-- `EfCoreOrderRepositoryTests` con `[OneTimeSetUp]` per setup db in-memory
-- Mock con Moq: `It.IsAny<CancellationToken>()` su tutti i setup (non `default`)
-- Campi nullable: inizializzati con `null!` (`private Mock<IOrderRepository> _repo = null!;`)
-- Asserzioni con `Assert.That(..., Is.EqualTo(...))` (stile NUnit fluente)
+**Contenuto:**
+- `OrderServiceTests` con `[TestFixture]`, `[SetUp]`, `[Test]` — 4 test su `OrderService.Core.Services.OrderService`
+- `EfCoreOrderRepositoryTests` con `[SetUp]`/`[TearDown]` e `UseInMemoryDatabase` — 4 test; DB isolato per test con Guid
+- Mock con Moq: `It.IsAny<CancellationToken>()` su tutti i setup
+- Campi nullable inizializzati con `null!` (`private Mock<IOrderRepository> _repo = null!;`)
+- Asserzioni con `Assert.That(..., Is.EqualTo(...))` (stile NUnit fluente, non `Assert.AreEqual`)
 
-**Packages da aggiungere (test project):**
-- `NUnit`
-- `NUnit3TestAdapter`
-- `Microsoft.NET.Test.Sdk`
-- `Moq`
+**Packages principali:**
+- `NUnit`, `NUnit3TestAdapter`, `NUnit.Analyzers`, `Microsoft.NET.Test.Sdk`
+- `Moq`, `Microsoft.EntityFrameworkCore.InMemory`
+
+**Come eseguire:**
+```bash
+dotnet test esempi/9.nunit/OrderService/OrderService.NUnitTests
+```
 
 ---
 
 ### `esempi/10.docker` — Dockerfile multi-stage + docker-compose completo
 
 **Capitolo:** 10.1–10.2  
-**Base:** copia di `5.ef-azuresql` (o `8.observability`)  
-**Prerequisito:** Docker Desktop
+**Base:** 5.ef-azuresql → aggiunge Dockerfile multi-stage e docker-compose completo  
+**Stato:** funzionante con Docker Desktop
 
-**Cosa aggiungere:**
-- `Dockerfile` multi-stage: `build` → `publish` → `runtime` (immagine `aspnet:10.0`)
-  - `COPY --chown=app:app`, `USER app`, layer caching ottimizzato
-- `docker-compose.yml` completo con `azuresql`, `servicebus`, `redis`, `orderservice`
-  - `depends_on` con `condition: service_healthy`
-  - health check su SQL Server con `start_period: 30s`
-- `docker-compose.override.yml` per sviluppo locale
-- Supporto `--migrate-only` in `Program.cs` per init container migrations
+**Contenuto:**
+- `OrderService/Dockerfile` multi-stage: `build` (sdk:10.0) → `publish` → `runtime` (aspnet:10.0)
+  - Layer caching ottimizzato: copia prima i `.csproj` per il restore, poi il codice
+  - Utente non-root: `addgroup app && adduser app`, `USER app`
+- `docker/docker-compose.yml` completo:
+  - `azuresql` con health check (`sqlcmd SELECT 1`, `start_period: 30s`)
+  - `migrate` init container: esegue `--migrate-only`, `depends_on: azuresql (healthy)`, `restart: on-failure`
+  - `orderservice`: porta 8080, `depends_on: azuresql (healthy) + migrate (completed_successfully)`
+- `docker/docker-compose.override.yml` per sviluppo locale (env Development)
+- `--migrate-only` flag in `Program.cs`: chiama `db.Database.MigrateAsync()` e termina
 
-**Packages da aggiungere:**
-- nessuno
+**Packages principali:**
+- nessuno (usa solo EF Core già presente)
+
+**Come avviare:**
+```bash
+# Build + avvio completo
+docker compose -f esempi/10.docker/docker/docker-compose.yml up --build
+# API: http://localhost:8080/orders
+```
+
+---
+
+## Develop plan — esempi da costruire
+
+Gli esempi seguenti non sono ancora presenti. Ogni entry specifica: la base di partenza, i package da aggiungere, le modifiche al codice e cosa dimostra.
 
 ---
 
 ### `esempi/10.aspire` — .NET Aspire AppHost locale
 
 **Capitolo:** 10.3, 11.4  
-**Base:** copia di `5.ef-azuresql` + nuovi progetti Aspire  
-**Prerequisito:** `dotnet workload install aspire`
+**Base:** 5.ef-azuresql → aggiunge ServiceDefaults e AppHost Aspire  
+**Stato:** Api + ServiceDefaults compilano; AppHost escluso dalla sln (richiede `Aspire.AppHost.Sdk`)
+
+> **Incongruenza 10.1** — Il corso indica `dotnet workload install aspire`, ma dal .NET 10 SDK il workload Aspire è **deprecato**. Il corretto approccio è usare `Aspire.AppHost.Sdk` come NuGet SDK (`Sdk="Aspire.AppHost.Sdk/9.x"`). La struttura del progetto rimane identica, cambia solo come si referenzia l'SDK.
 
 **Struttura aggiuntiva:**
 ```
-OrderService.AppHost/
-OrderService.ServiceDefaults/
+OrderService.ServiceDefaults/   ← compila normalmente
+OrderService.AppHost/           ← escluso dalla sln; richiede Aspire.AppHost.Sdk come SDK
 ```
 
-**Cosa aggiungere:**
-- `AppHost/Program.cs` con `AddSqlServer` + `AddDatabase("Default")`, `AddRedis`, `AddProject<Projects.OrderService_Api>` con `.WithReference`
-- `ServiceDefaults/Extensions.cs` con `AddServiceDefaults` (OpenTelemetry + health checks + service discovery + Polly)
-- `AddServiceDefaults()` in `OrderService.Api/Program.cs`
-- `MapDefaultEndpoints()` per `/health/live` e `/health/ready`
+**Contenuto:**
+- `ServiceDefaults/Extensions.cs`: `AddServiceDefaults` (OTEL + health checks + service discovery + Polly standard resilience); `MapDefaultEndpoints` per `/health/live` e `/health/ready`
+- `AppHost/Program.cs`: `AddSqlServer("sql").AddDatabase("Default")`, `AddProject<Projects.OrderService_Api>("orderservice").WithReference(sql).WaitFor(sql)`
+- `OrderService.Api/Program.cs`: aggiunto `builder.AddServiceDefaults()` e `app.MapDefaultEndpoints()`
+- `Projects.*` tipi generati da `Aspire.AppHost.Sdk` tramite MSBuild
 
-**Packages da aggiungere:**
-- `Aspire.Hosting` (nel AppHost)
-- `Microsoft.Extensions.ServiceDiscovery` (nei ServiceDefaults)
+**Packages principali:**
+- `Aspire.Hosting.AppHost`, `Aspire.Hosting.SqlServer` (nell'AppHost)
+- `Microsoft.Extensions.ServiceDiscovery`, `OpenTelemetry.*` (nei ServiceDefaults)
+
+**Come avviare:**
+```bash
+# Richiede Aspire.AppHost.Sdk — usare Aspire SDK-based AppHost
+dotnet run --project esempi/10.aspire/OrderService/OrderService.AppHost
+# Dashboard: http://localhost:15888
+```
 
 ---
 
 ### `esempi/11.functions` — Azure Functions isolated worker
 
 **Capitolo:** 11.1  
-**Base:** nuovo progetto `func init` (non dipende da OrderService)  
-**Prerequisito:** `npm install -g azure-functions-core-tools@4`
+**Base:** progetto standalone (non dipende da OrderService)  
+**Stato:** compila; per l'avvio locale richiede `azure-functions-core-tools@4`
 
 **Struttura:**
 ```
 OrderProcessor/
-├── Program.cs
-├── Functions/
-│   ├── ProcessOrderFunction.cs    ← HttpTrigger POST /orders/{id}/process
-│   ├── DailyReportFunction.cs     ← TimerTrigger (cron 0 0 2 * * *)
-│   └── OrderCreatedConsumerFunction.cs ← ServiceBusTrigger
-└── local.settings.json
+├── Program.cs                     ← FunctionsApplication.CreateBuilder + DI
+├── host.json
+├── local.settings.json            ← ServiceBusConnection, AzureWebJobsStorage
+└── Functions/
+    ├── ProcessOrderFunction.cs    ← HttpTrigger POST /orders/{id}/process
+    ├── DailyReportFunction.cs     ← TimerTrigger cron "0 0 2 * * *" con IsPastDue
+    └── OrderCreatedConsumerFunction.cs ← ServiceBusTrigger topic "order-created" sub "inventory-sub"
 ```
 
-**Cosa implementare:**
-- Modello isolated worker (unico supportato in .NET 10)
-- DI completa in `Program.cs` con `HostBuilder`
-- `HttpTrigger` con route parameter e lettura body JSON
-- `TimerTrigger` con controllo `IsPastDue`
-- `ServiceBusTrigger` con connessione tramite `local.settings.json`
+**Contenuto:**
+- Modello isolated worker (unico supportato in .NET 9/10)
+- DI completa via `FunctionsApplication.CreateBuilder(args)` (non `HostBuilder`)
+- `HttpTrigger` con route parameter `{id}`, `AuthorizationLevel.Anonymous`, risposta JSON
+- `TimerTrigger` con NCRONTAB a 6 campi (`secondi minuti ore ...`), controllo `myTimer.IsPastDue`
+- `ServiceBusTrigger` con `Connection = "ServiceBusConnection"` dal `local.settings.json`
+- Target framework `net9.0` (Functions v4 non supporta ancora net10.0)
 
-**Packages da aggiungere:**
+**Packages principali:**
 - `Microsoft.Azure.Functions.Worker`
-- `Microsoft.Azure.Functions.Worker.Extensions.Http`
+- `Microsoft.Azure.Functions.Worker.Extensions.Http.AspNetCore`
 - `Microsoft.Azure.Functions.Worker.Extensions.Timer`
 - `Microsoft.Azure.Functions.Worker.Extensions.ServiceBus`
-- `Microsoft.Azure.Functions.Worker.ApplicationInsights`
+- `Microsoft.Azure.Functions.Worker.Sdk`
+
+**Come avviare:**
+```bash
+npm install -g azure-functions-core-tools@4 --unsafe-perm true
+cd esempi/11.functions/OrderProcessor
+func start
+```
 
 ---
 
 ### `esempi/11.aot` — Native AOT
 
 **Capitolo:** 11.2  
-**Base:** copia di `5.ef-azuresql` (senza Dapper, AOT non compatibile)  
-**Prerequisito:** toolchain nativa (Visual C++ per Windows)
+**Base:** 5.ef-azuresql → convertito per Native AOT  
+**Stato:** compila con 0 errori e 0 warning AOT
 
-**Cosa modificare:**
-- `Program.cs`: `WebApplication.CreateSlimBuilder(args)` invece di `CreateBuilder`
-- `[JsonSerializable]` source generator per tutti i tipi serializzati (request/response DTOs)
+**Contenuto:**
+- `CreateSlimBuilder(args)` al posto di `CreateBuilder` — endpoint routing minimale
+- Minimal API (`MapGroup("/orders")`) al posto dei Controller — i controller usano reflection, non compatibili AOT
+- `[JsonSerializable]` source generator: `AppJsonSerializerContext` in `Program.cs`, con `OrderDto`, `List<OrderDto>`, `CreateOrderRequest`, `ProblemDetails`
+- `ConfigureHttpJsonOptions` con `TypeInfoResolverChain.Insert(0, AppJsonSerializerContext.Default)`
+- `GlobalExceptionHandler` aggiornato: usa `JsonSerializer.Serialize(problem, AppJsonSerializerContext.Default.ProblemDetails)` e `WriteAsync` (no reflection)
+- Validazione manuale nel route handler (FluentValidation rimossa — reflection-heavy)
+- Rimosso: `FluentValidation`, `Scalar.AspNetCore`, Controller, Filters, Validators
 - `PublishAot=true`, `InvariantGlobalization=true` nel `.csproj`
-- `Dockerfile` aggiornato: build con `sdk:10.0` → runtime `runtime-deps:10.0` (non `aspnet`)
-- Rimuovere o sostituire ogni libreria non AOT-compatibile (reflection-heavy)
+- Per il publish AOT serve: `dotnet publish -r win-x64` (o la runtime target) + Visual C++ Build Tools
 
-**Packages da aggiungere:**
-- nessuno (si rimuove `Scalar.AspNetCore` se non AOT-compatibile)
+**Packages rimossi:**
+- `FluentValidation`, `FluentValidation.DependencyInjectionExtensions`, `Scalar.AspNetCore`
+
+**Come avviare:**
+```bash
+# Build normale (debug, no AOT compile)
+dotnet run --project esempi/11.aot/OrderService/OrderService.Api
+
+# Publish AOT nativo (richiede VC++ toolchain)
+dotnet publish esempi/11.aot/OrderService/OrderService.Api -r win-x64 -c Release
+```
 
 ---
 

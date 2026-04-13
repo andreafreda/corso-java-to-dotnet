@@ -1,0 +1,6 @@
+# Override per sviluppo locale: monta il codice sorgente e abilita hot reload
+services:
+  orderservice:
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      DOTNET_USE_POLLING_FILE_WATCHER: "1"
